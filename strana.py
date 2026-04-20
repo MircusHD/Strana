@@ -43,13 +43,13 @@ else:
 FFMPEG_PATH = os.path.join(_BASE, "ffmpeg.exe" if sys.platform == "win32" else "ffmpeg")
 
 QUALITY_OPTIONS = [
-    ("4K  (2160p)",      "bestvideo[height<=2160][ext=mp4]+bestaudio[ext=m4a]/best[height<=2160]"),
-    ("2K  (1440p)",      "bestvideo[height<=1440][ext=mp4]+bestaudio[ext=m4a]/best[height<=1440]"),
-    ("FHD (1080p) ★",   "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080]"),
-    ("HD  (720p)",       "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720]"),
-    ("SD  (480p)",       "bestvideo[height<=480][ext=mp4]+bestaudio[ext=m4a]/best[height<=480]"),
-    ("360p",             "bestvideo[height<=360][ext=mp4]+bestaudio[ext=m4a]/best[height<=360]"),
-    ("Audio only (MP3)", "bestaudio[ext=m4a]/bestaudio/best"),
+    ("4K  (2160p)",      "bestvideo[height<=2160]+bestaudio/best[height<=2160]/best"),
+    ("2K  (1440p)",      "bestvideo[height<=1440]+bestaudio/best[height<=1440]/best"),
+    ("FHD (1080p) ★",   "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best"),
+    ("HD  (720p)",       "bestvideo[height<=720]+bestaudio/best[height<=720]/best"),
+    ("SD  (480p)",       "bestvideo[height<=480]+bestaudio/best[height<=480]/best"),
+    ("360p",             "bestvideo[height<=360]+bestaudio/best[height<=360]/best"),
+    ("Audio only (MP3)", "bestaudio/best"),
 ]
 QUALITY_LABELS = [q[0] for q in QUALITY_OPTIONS]
 
@@ -254,10 +254,10 @@ class StranaApp(ctk.CTk):
         self._build_ui()
 
         # fix macOS white window
-        self.update_idletasks()
-        self.lift()
-        self.focus_force()
-        self.after(100, self.update)
+        self.withdraw()
+        self._after_fix_id = self.after(150, self.deiconify)
+
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
 
         if not YT_DLP_AVAILABLE:
             self.after(400, self._ask_install)
@@ -363,6 +363,20 @@ class StranaApp(ctk.CTk):
                       text_color="#888888",
                       command=self._choose_folder).pack(side="left", padx=(4, 0))
 
+        # Playlist toggle
+        pl_frame = ctk.CTkFrame(options_row, fg_color="transparent")
+        pl_frame.pack(side="left", padx=(14, 0))
+        ctk.CTkLabel(pl_frame, text="MOD",
+                     font=ctk.CTkFont(size=9, weight="bold"), text_color="#3a3a3a").pack(anchor="w")
+        self._playlist_var = ctk.BooleanVar(value=False)
+        ctk.CTkCheckBox(
+            pl_frame, text="Playlist complet",
+            variable=self._playlist_var,
+            font=ctk.CTkFont(size=12), text_color="#888888",
+            fg_color=ACCENT, hover_color=ACCENT_HOVER,
+            height=36, checkbox_width=18, checkbox_height=18
+        ).pack(anchor="w", pady=(4, 0))
+
         # Buton DOWNLOAD
         self._dl_btn = ctk.CTkButton(
             options_row, text="⬇  DOWNLOAD",
@@ -445,14 +459,27 @@ class StranaApp(ctk.CTk):
 
     # ── Fetch info ─────────────────────────────────────────────────────────────
     def _fetch_info(self, url):
+        is_playlist = self._playlist_var.get()
         def worker():
+            opts = {
+                "quiet": True,
+                "no_warnings": True,
+                "nocheckcertificate": True,
+                "noplaylist": not is_playlist,
+                "extract_flat": "in_playlist" if is_playlist else False,
+            }
             try:
-                with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "skip_download": True, "nocheckcertificate": True, "noplaylist": True}) as ydl:
+                with yt_dlp.YoutubeDL(opts) as ydl:
                     info = ydl.extract_info(url, download=False)
                 self.after(0, lambda: self._on_info_ready(url, info))
             except Exception as e:
                 err = str(e)
-                self.after(0, lambda: self._on_fetch_error(err))
+                if "Only images are available" in err or "images" in err.lower():
+                    self.after(0, lambda: self._on_fetch_error("Videoclipul nu conține audio/video (doar imagini)."))
+                elif "Requested format is not available" in err:
+                    self.after(0, lambda: self._on_fetch_error("Niciun format audio/video disponibil. Actualizează yt-dlp:\npip install -U yt-dlp"))
+                else:
+                    self.after(0, lambda: self._on_fetch_error(err))
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -469,7 +496,14 @@ class StranaApp(ctk.CTk):
         quality_label = self._quality_var.get()
         fmt_str = next((f for lbl, f in QUALITY_OPTIONS if lbl == quality_label), QUALITY_OPTIONS[2][1])
 
-        self._start_download(url, info, quality_label, fmt_str)
+        if info.get("_type") in ("playlist", "multi_video") and "entries" in info:
+            entries = [e for e in info.get("entries", []) if e]
+            self._status.configure(text=f"Playlist: {len(entries)} videoclipuri găsite. Se pornesc descărcările...")
+            for entry in entries:
+                video_url = entry.get("webpage_url") or entry.get("url") or f"https://www.youtube.com/watch?v={entry.get('id', '')}"
+                self._start_download(video_url, entry, quality_label, fmt_str)
+        else:
+            self._start_download(url, info, quality_label, fmt_str)
 
     # ── Download ───────────────────────────────────────────────────────────────
     def _start_download(self, url, info, quality_label, fmt_str):
@@ -547,6 +581,15 @@ class StranaApp(ctk.CTk):
             self._status.configure(text=f"Toate cele {total} descărcare(i) sunt complete.")
         else:
             self._status.configure(text="Gata.")
+
+    def _on_close(self):
+        try:
+            self.after_cancel(self._after_fix_id)
+        except Exception:
+            pass
+        for card in self._cards:
+            card._cancel_flag = True
+        self.destroy()
 
     # ── yt-dlp install ─────────────────────────────────────────────────────────
     def _ask_install(self):
