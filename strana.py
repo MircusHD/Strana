@@ -308,7 +308,7 @@ class StranaApp(ctk.CTk):
 
         self._url_entry = ctk.CTkEntry(
             url_row,
-            placeholder_text="Lipește URL-ul video sau playlist-ului aici…",
+            placeholder_text="Lipește URL-ul video (YouTube, Facebook, Vimeo…)",
             height=42, fg_color=BG_INPUT,
             border_color="#2e2e2e", border_width=1,
             font=ctk.CTkFont(size=13),
@@ -480,6 +480,10 @@ class StranaApp(ctk.CTk):
                     self.after(0, lambda: self._on_fetch_error("Videoclipul nu conține audio/video (doar imagini)."))
                 elif "Requested format is not available" in err:
                     self.after(0, lambda: self._on_fetch_error("Niciun format audio/video disponibil. Actualizează yt-dlp:\npip install -U yt-dlp"))
+                elif "login" in err.lower() or "log in" in err.lower() or "private" in err.lower():
+                    self.after(0, lambda: self._on_fetch_error("Video privat sau necesită autentificare Facebook.\nDoar videoclipurile publice pot fi descărcate."))
+                elif "not available" in err.lower() or "removed" in err.lower():
+                    self.after(0, lambda: self._on_fetch_error("Videoclipul nu mai este disponibil sau a fost șters."))
                 else:
                     self.after(0, lambda: self._on_fetch_error(err))
 
@@ -502,7 +506,9 @@ class StranaApp(ctk.CTk):
             entries = [e for e in info.get("entries", []) if e]
             self._status.configure(text=f"Playlist: {len(entries)} videoclipuri găsite. Se pornesc descărcările...")
             for entry in entries:
-                video_url = entry.get("webpage_url") or entry.get("url") or f"https://www.youtube.com/watch?v={entry.get('id', '')}"
+                video_url = entry.get("webpage_url") or entry.get("url")
+                if not video_url:
+                    continue
                 self._start_download(video_url, entry, quality_label, fmt_str)
         else:
             self._start_download(url, info, quality_label, fmt_str)
