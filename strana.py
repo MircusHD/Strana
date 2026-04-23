@@ -4,12 +4,14 @@ Strana — UI inspirat din 4K Downloader
 Requires: pip install yt-dlp customtkinter Pillow
 """
 
+import os
+os.environ.setdefault("OBJC_DISABLE_INITIALIZE_FORK_SAFETY", "YES")
+
 import customtkinter as ctk
 from tkinter import filedialog, messagebox
 import threading
 import subprocess
 import sys
-import os
 import io
 import urllib.request
 
@@ -235,6 +237,8 @@ class PrefsDialog(ctk.CTkToplevel):
 
     def _save(self):
         self._app.download_dir = self._dir.get()
+        self._app._dir_entry.delete(0, "end")
+        self._app._dir_entry.insert(0, self._app.download_dir)
         self._app._dir_lbl.configure(text=f"📁  {self._app.download_dir}")
         self.destroy()
 
@@ -243,7 +247,7 @@ class PrefsDialog(ctk.CTkToplevel):
 class StranaApp(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("Strana by Mircea Carmanus")
+        self.title("YTD by Mircea Carmanus")
         self.geometry("940x600")
         self.minsize(740, 480)
         self.configure(fg_color=BG_MAIN)
@@ -255,7 +259,7 @@ class StranaApp(ctk.CTk):
 
         # fix macOS white window
         self.withdraw()
-        self._after_fix_id = self.after(150, self.deiconify)
+        self._after_fix_id = self.after(300, self._show_window)
 
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
@@ -269,10 +273,8 @@ class StranaApp(ctk.CTk):
         toolbar.pack(fill="x")
         toolbar.pack_propagate(False)
 
-        ctk.CTkLabel(toolbar, text="☦",
-                     font=ctk.CTkFont(size=26, weight="bold"), text_color=ACCENT).pack(side="left", padx=(18, 0))
-        ctk.CTkLabel(toolbar, text=" Strana",
-                     font=ctk.CTkFont(size=12), text_color="#555555").pack(side="left")
+        ctk.CTkLabel(toolbar, text="YTD",
+                     font=ctk.CTkFont(size=12), text_color="#555555").pack(side="left", padx=(18, 0))
 
         yt_color = "#4caf50" if YT_DLP_AVAILABLE else "#f44336"
         yt_text  = "● yt-dlp" if YT_DLP_AVAILABLE else "● yt-dlp lipsește"
@@ -581,6 +583,13 @@ class StranaApp(ctk.CTk):
             self._status.configure(text=f"Toate cele {total} descărcare(i) sunt complete.")
         else:
             self._status.configure(text="Gata.")
+
+    def _show_window(self):
+        self.configure(fg_color=BG_MAIN)
+        self.update_idletasks()
+        self.deiconify()
+        self.lift()
+        self.focus_force()
 
     def _on_close(self):
         try:
