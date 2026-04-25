@@ -1,0 +1,71 @@
+name: Build macOS App
+
+on:
+  push:
+    branches: [main]
+  release:
+    types: [created]
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - runner: macos-14
+            ffmpeg_archive: ffmpeg-master-latest-macosarm64-gpl.tar.xz
+            artifact: Strana-macOS-AppleSilicon
+          - runner: macos-13
+            ffmpeg_archive: ffmpeg-master-latest-macos64-gpl.tar.xz
+            artifact: Strana-macOS-Intel
+
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - name: Checkout cod
+        uses: actions/checkout@v4
+
+      - name: Instalare Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalare dependențe
+        run: |
+          python -m pip install --upgrade pip
+          pip install customtkinter Pillow pyinstaller
+          pip install -U yt-dlp
+
+      - name: Descărcare ffmpeg
+        run: |
+          curl -L "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/${{ matrix.ffmpeg_archive }}" -o ffmpeg.tar.xz
+          tar -xf ffmpeg.tar.xz
+          find . -maxdepth 4 -name "ffmpeg" -type f ! -path "./.git/*" | head -1 | xargs -I{} cp {} ./ffmpeg
+          chmod +x ./ffmpeg
+          rm -rf ffmpeg.tar.xz ffmpeg-master-*
+
+      - name: Compilare cu PyInstaller
+        run: >
+          pyinstaller
+          --windowed
+          --name Strana
+          --collect-data customtkinter
+          --collect-all yt_dlp
+          --add-binary "ffmpeg:."
+          strana.py
+
+      - name: Arhivare .app
+        run: zip -r ${{ matrix.artifact }}.zip dist/Strana.app
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}.zip
+          retention-days: 30
+
+      - name: Atașare la Release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ matrix.artifact }}.zip
