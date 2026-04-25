@@ -13,10 +13,8 @@ jobs:
       matrix:
         include:
           - runner: macos-14
-            ffmpeg_archive: ffmpeg-master-latest-macosarm64-gpl.tar.xz
             artifact: Strana-macOS-AppleSilicon
           - runner: macos-13
-            ffmpeg_archive: ffmpeg-master-latest-macos64-gpl.tar.xz
             artifact: Strana-macOS-Intel
 
     runs-on: ${{ matrix.runner }}
@@ -36,13 +34,10 @@ jobs:
           pip install customtkinter Pillow pyinstaller
           pip install -U yt-dlp
 
-      - name: Descărcare ffmpeg
+      - name: Instalare ffmpeg
         run: |
-          curl -L "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/${{ matrix.ffmpeg_archive }}" -o ffmpeg.tar.xz
-          tar -xf ffmpeg.tar.xz
-          find . -maxdepth 4 -name "ffmpeg" -type f ! -path "./.git/*" | head -1 | xargs -I{} cp {} ./ffmpeg
-          chmod +x ./ffmpeg
-          rm -rf ffmpeg.tar.xz ffmpeg-master-*
+          brew install ffmpeg
+          cp "$(which ffmpeg)" ./ffmpeg
 
       - name: Compilare cu PyInstaller
         run: >
