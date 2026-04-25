@@ -42,16 +42,16 @@ if getattr(sys, "frozen", False):
     _BASE = sys._MEIPASS
 else:
     _BASE = os.path.dirname(os.path.abspath(__file__))
-FFMPEG_PATH = os.path.join(_BASE, "ffmpeg.exe" if sys.platform == "win32" else "ffmpeg")
+FFMPEG_PATH = _BASE  # yt-dlp caută ffmpeg(.exe) în acest director pe orice platformă
 
 QUALITY_OPTIONS = [
-    ("4K  (2160p)",      "bestvideo[height<=2160]+bestaudio/best[height<=2160]/best"),
-    ("2K  (1440p)",      "bestvideo[height<=1440]+bestaudio/best[height<=1440]/best"),
-    ("FHD (1080p) ★",   "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best"),
-    ("HD  (720p)",       "bestvideo[height<=720]+bestaudio/best[height<=720]/best"),
-    ("SD  (480p)",       "bestvideo[height<=480]+bestaudio/best[height<=480]/best"),
-    ("360p",             "bestvideo[height<=360]+bestaudio/best[height<=360]/best"),
-    ("Audio only (MP3)", "bestaudio/best"),
+    ("4K  (2160p)",      "bestvideo[height<=2160][vcodec^=avc]+bestaudio[acodec^=mp4a]/bestvideo[height<=2160]+bestaudio/best"),
+    ("2K  (1440p)",      "bestvideo[height<=1440][vcodec^=avc]+bestaudio[acodec^=mp4a]/bestvideo[height<=1440]+bestaudio/best"),
+    ("FHD (1080p) ★",   "bestvideo[height<=1080][vcodec^=avc]+bestaudio[acodec^=mp4a]/bestvideo[height<=1080]+bestaudio/best"),
+    ("HD  (720p)",       "bestvideo[height<=720][vcodec^=avc]+bestaudio[acodec^=mp4a]/bestvideo[height<=720]+bestaudio/best"),
+    ("SD  (480p)",       "bestvideo[height<=480][vcodec^=avc]+bestaudio[acodec^=mp4a]/bestvideo[height<=480]+bestaudio/best"),
+    ("360p",             "bestvideo[height<=360][vcodec^=avc]+bestaudio[acodec^=mp4a]/bestvideo[height<=360]+bestaudio/best"),
+    ("Audio only (MP3)", "bestaudio[acodec^=mp4a]/bestaudio/best"),
 ]
 QUALITY_LABELS = [q[0] for q in QUALITY_OPTIONS]
 
@@ -74,13 +74,15 @@ def human_speed(bps):
 
 # ── Card descărcare ───────────────────────────────────────────────────────────
 class DownloadCard(ctk.CTkFrame):
-    def __init__(self, parent, title, quality_label, thumbnail_url=""):
+    def __init__(self, parent, title, quality_label, thumbnail_url="", on_remove=None):
         super().__init__(parent, fg_color=BG_CARD, corner_radius=10, height=90)
         self.pack_propagate(False)
 
         self.is_active    = True
         self._cancel_flag = False
         self._output_dir  = ""
+        self._output_file = ""
+        self._on_remove   = on_remove
         self._ctk_img     = None
 
         # Thumbnail
@@ -133,19 +135,30 @@ class DownloadCard(ctk.CTkFrame):
         self._speed_lbl.pack(fill="x", anchor="w")
 
         # Dreapta
-        right = ctk.CTkFrame(self, fg_color="transparent", width=38)
+        right = ctk.CTkFrame(self, fg_color="transparent", width=76)
         right.pack(side="right", padx=10, pady=11)
         right.pack_propagate(False)
 
         self._status_lbl = ctk.CTkLabel(right, text="●", font=ctk.CTkFont(size=18), text_color=ACCENT)
         self._status_lbl.pack()
 
+        _btn_row = ctk.CTkFrame(right, fg_color="transparent")
+        _btn_row.pack(pady=(4, 0))
+
         self._action_btn = ctk.CTkButton(
-            right, text="✕", width=28, height=28,
+            _btn_row, text="✕", width=28, height=28,
             fg_color="#333333", hover_color="#cc0000",
             font=ctk.CTkFont(size=11), command=self._cancel
         )
-        self._action_btn.pack(pady=(4, 0))
+        self._action_btn.pack(side="left")
+
+        self._delete_btn = ctk.CTkButton(
+            _btn_row, text="🗑", width=28, height=28,
+            fg_color="#1e1e1e", hover_color="#cc0000",
+            font=ctk.CTkFont(size=11), text_color="#333333",
+            command=self._delete_file, state="disabled"
+        )
+        self._delete_btn.pack(side="left", padx=(4, 0))
 
     def _load_thumb(self, url):
         try:
@@ -177,6 +190,7 @@ class DownloadCard(ctk.CTkFrame):
         self._status_lbl.configure(text="✓", text_color="#4caf50")
         self._speed_lbl.configure(text="Complet")
         self._action_btn.configure(text="📁", command=self._open_folder)
+        self._delete_btn.configure(state="normal", fg_color="#333333", text_color="white")
 
     def set_error(self, msg=""):
         self.is_active = False
@@ -184,6 +198,33 @@ class DownloadCard(ctk.CTkFrame):
         self._status_lbl.configure(text="✕", text_color="#f44336")
         self._speed_lbl.configure(text=f"Eroare: {msg[:70]}")
         self._action_btn.configure(state="disabled")
+
+    def set_output_file(self, path):
+        self._output_file = path
+
+    def _delete_file(self):
+        has_file = bool(self._output_file and os.path.exists(self._output_file))
+        if has_file:
+            answer = messagebox.askyesnocancel(
+                "Șterge descărcarea",
+                f"Ștergi și fișierul de pe disc?\n\n{os.path.basename(self._output_file)}",
+                parent=self.winfo_toplevel()
+            )
+            if answer is None:
+                return
+            if answer:
+                try:
+                    os.remove(self._output_file)
+                except Exception:
+                    pass
+        else:
+            if not messagebox.askyesno(
+                "Elimină din listă", "Elimini cardul din listă?",
+                parent=self.winfo_toplevel()
+            ):
+                return
+        if self._on_remove:
+            self._on_remove()
 
     def _cancel(self):
         self._cancel_flag = True
@@ -252,8 +293,9 @@ class StranaApp(ctk.CTk):
         self.minsize(740, 480)
         self.configure(fg_color=BG_MAIN)
 
-        self.download_dir = os.path.expanduser("~/Downloads")
-        self._cards       = []
+        self.download_dir   = os.path.expanduser("~/Downloads")
+        self._cards         = []
+        self._detect_thread = None
 
         self._build_ui()
 
@@ -316,6 +358,8 @@ class StranaApp(ctk.CTk):
         )
         self._url_entry.pack(side="left", fill="x", expand=True)
         self._url_entry.bind("<Return>", lambda _: self._on_download_click())
+        self._url_entry.bind("<<Paste>>", lambda _: self.after(50, self._on_url_changed))
+        self._url_entry.bind("<FocusOut>", lambda _: self._on_url_changed())
 
         ctk.CTkButton(
             url_row, text="Paste",
@@ -381,7 +425,7 @@ class StranaApp(ctk.CTk):
 
         # Buton DOWNLOAD
         self._dl_btn = ctk.CTkButton(
-            options_row, text="⬇  DOWNLOAD",
+            options_row, text="⬇  DESCARCĂ",
             command=self._on_download_click,
             fg_color=ACCENT, hover_color=ACCENT_HOVER,
             font=ctk.CTkFont(size=14, weight="bold"),
@@ -402,7 +446,7 @@ class StranaApp(ctk.CTk):
         ctk.CTkLabel(self._empty, text="⬇", font=ctk.CTkFont(size=60), text_color="#232323").pack()
         ctk.CTkLabel(self._empty, text="Nicio descărcare",
                      font=ctk.CTkFont(size=16, weight="bold"), text_color="#303030").pack(pady=(6, 3))
-        ctk.CTkLabel(self._empty, text="Lipește un URL și apasă  ⬇ DOWNLOAD",
+        ctk.CTkLabel(self._empty, text="Lipește un URL și apasă  ⬇ DESCARCĂ",
                      font=ctk.CTkFont(size=12), text_color="#272727").pack()
 
         # Lista scrollabilă
@@ -430,8 +474,59 @@ class StranaApp(ctk.CTk):
             if clip:
                 self._url_entry.delete(0, "end")
                 self._url_entry.insert(0, clip)
+                if is_valid_url(clip):
+                    self._auto_detect_quality(clip)
         except Exception:
             pass
+
+    def _on_url_changed(self):
+        url = self._url_entry.get().strip()
+        if is_valid_url(url):
+            self._auto_detect_quality(url)
+
+    def _auto_detect_quality(self, url):
+        if not YT_DLP_AVAILABLE:
+            return
+        self._status.configure(text="Se detectează calitățile disponibile...")
+        def worker():
+            try:
+                opts = {
+                    "quiet": True, "no_warnings": True,
+                    "nocheckcertificate": True, "noplaylist": True,
+                }
+                with yt_dlp.YoutubeDL(opts) as ydl:
+                    info = ydl.extract_info(url, download=False)
+                formats = info.get("formats") or []
+                available = {
+                    fmt.get("height") for fmt in formats
+                    if fmt.get("height") and isinstance(fmt.get("height"), int)
+                }
+                height_map = {
+                    "4K  (2160p)": 2160, "2K  (1440p)": 1440,
+                    "FHD (1080p) ★": 1080, "HD  (720p)": 720,
+                    "SD  (480p)": 480, "360p": 360,
+                }
+                filtered = []
+                for label, _ in QUALITY_OPTIONS:
+                    if label == "Audio only (MP3)":
+                        filtered.append(label)
+                        continue
+                    threshold = height_map.get(label)
+                    if threshold is None or any(h <= threshold for h in available):
+                        filtered.append(label)
+                self.after(0, lambda: self._apply_detected_quality(filtered or QUALITY_LABELS[:]))
+            except Exception:
+                self.after(0, lambda: self._apply_detected_quality(QUALITY_LABELS[:]))
+        t = threading.Thread(target=worker, daemon=True)
+        self._detect_thread = t
+        t.start()
+
+    def _apply_detected_quality(self, labels):
+        current = self._quality_var.get()
+        self._quality_combo.configure(values=labels)
+        self._quality_var.set(current if current in labels else labels[0])
+        if not any(c.is_active for c in self._cards):
+            self._status.configure(text="Gata.")
 
     def _choose_folder(self):
         d = filedialog.askdirectory(initialdir=self.download_dir)
@@ -490,12 +585,12 @@ class StranaApp(ctk.CTk):
         threading.Thread(target=worker, daemon=True).start()
 
     def _on_fetch_error(self, err):
-        self._dl_btn.configure(state="normal", text="⬇  DOWNLOAD")
+        self._dl_btn.configure(state="normal", text="⬇  DESCARCĂ")
         self._status.configure(text="Eroare la preluare.")
         messagebox.showerror("Eroare", f"Nu s-au putut prelua informații:\n{err}", parent=self)
 
     def _on_info_ready(self, url, info):
-        self._dl_btn.configure(state="normal", text="⬇  DOWNLOAD")
+        self._dl_btn.configure(state="normal", text="⬇  DESCARCĂ")
         self._status.configure(text="Gata.")
         self._url_entry.delete(0, "end")
 
@@ -525,6 +620,7 @@ class StranaApp(ctk.CTk):
             quality_label=quality_label,
             thumbnail_url=info.get("thumbnail") or ""
         )
+        card._on_remove = lambda c=card: self._remove_card(c)
         card.pack(fill="x", padx=14, pady=(10, 0))
         self._cards.append(card)
         self._update_status()
@@ -545,15 +641,24 @@ class StranaApp(ctk.CTk):
         }
         if is_audio:
             ydl_opts["postprocessors"] = [
-                {"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "320"},
+                {"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "0"},
                 {"key": "FFmpegMetadata"},
             ]
+            ydl_opts["keepvideo"]      = False
+            ydl_opts["writethumbnail"] = False
+            ydl_opts["embedthumbnail"] = False
             del ydl_opts["merge_output_format"]
+
+        captured_file = []
 
         def hook(d):
             if card._cancel_flag:
                 raise Exception("Anulat")
             if d["status"] == "downloading":
+                if not captured_file:
+                    fn = d.get("filename", "")
+                    if fn:
+                        captured_file.append(fn)
                 total  = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
                 done   = d.get("downloaded_bytes", 0)
                 speed  = d.get("speed") or 0
@@ -571,6 +676,11 @@ class StranaApp(ctk.CTk):
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     ydl.download([url])
                 if not card._cancel_flag:
+                    if captured_file:
+                        base, _ = os.path.splitext(captured_file[0])
+                        ext     = ".mp3" if is_audio else ".mp4"
+                        final   = base + ext
+                        card.set_output_file(final if os.path.exists(final) else captured_file[0])
                     self.after(0, lambda: card.set_done(out_dir))
             except Exception as e:
                 err = str(e)
@@ -579,6 +689,14 @@ class StranaApp(ctk.CTk):
             self.after(0, self._update_status)
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def _remove_card(self, card):
+        card.destroy()
+        self._cards = [c for c in self._cards if c != card]
+        if not self._cards:
+            self._list.pack_forget()
+            self._empty.place(relx=0.5, rely=0.5, anchor="center")
+        self._update_status()
 
     def _update_status(self):
         active = sum(1 for c in self._cards if c.is_active)

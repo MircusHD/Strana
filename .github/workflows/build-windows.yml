@@ -41,6 +41,7 @@ jobs:
           --noconsole
           --name Strana
           --collect-data customtkinter
+          --collect-all yt_dlp
           --add-binary "ffmpeg.exe;."
           strana.py
 
