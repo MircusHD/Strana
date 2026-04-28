@@ -14,8 +14,10 @@ jobs:
         include:
           - runner: macos-14
             artifact: Strana-macOS-AppleSilicon
-          - runner: macos-13
+            arch: arm64
+          - runner: macos-14
             artifact: Strana-macOS-Intel
+            arch: x86_64
 
     runs-on: ${{ matrix.runner }}
 
@@ -23,31 +25,65 @@ jobs:
       - name: Checkout cod
         uses: actions/checkout@v4
 
-      - name: Instalare Python 3.12
+      - name: Activare Rosetta 2 (doar Intel)
+        if: matrix.arch == 'x86_64'
+        run: softwareupdate --install-rosetta --agree-to-license
+
+      - name: Instalare Python arm64
+        if: matrix.arch == 'arm64'
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Instalare dependențe
+      - name: Instalare Python x86_64
+        if: matrix.arch == 'x86_64'
         run: |
-          python -m pip install --upgrade pip
-          pip install customtkinter Pillow pyinstaller
-          pip install -U yt-dlp
+          curl -fsSL https://www.python.org/ftp/python/3.12.7/python-3.12.7-macos11.pkg -o python.pkg
+          sudo installer -pkg python.pkg -target /
 
-      - name: Instalare ffmpeg
+      - name: Instalare dependențe arm64
+        if: matrix.arch == 'arm64'
+        run: |
+          pip install --upgrade pip
+          pip install customtkinter Pillow pyinstaller yt-dlp
+
+      - name: Instalare dependențe x86_64
+        if: matrix.arch == 'x86_64'
+        run: |
+          arch -x86_64 /Library/Frameworks/Python.framework/Versions/3.12/bin/python3.12 \
+            -m pip install --upgrade pip customtkinter Pillow pyinstaller yt-dlp
+
+      - name: Instalare ffmpeg arm64
+        if: matrix.arch == 'arm64'
         run: |
           brew install ffmpeg
           cp "$(which ffmpeg)" ./ffmpeg
 
-      - name: Compilare cu PyInstaller
-        run: >
-          pyinstaller
-          --windowed
-          --name Strana
-          --collect-data customtkinter
-          --collect-all yt_dlp
-          --add-binary "ffmpeg:."
-          strana.py
+      - name: Instalare Homebrew Intel + ffmpeg x86_64
+        if: matrix.arch == 'x86_64'
+        run: |
+          arch -x86_64 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+          arch -x86_64 /usr/local/bin/brew install ffmpeg
+          cp /usr/local/bin/ffmpeg ./ffmpeg
+
+      - name: Compilare arm64
+        if: matrix.arch == 'arm64'
+        run: |
+          pyinstaller --windowed --name Strana \
+            --collect-data customtkinter \
+            --collect-all yt_dlp \
+            --add-binary "ffmpeg:." \
+            strana.py
+
+      - name: Compilare x86_64
+        if: matrix.arch == 'x86_64'
+        run: |
+          arch -x86_64 /Library/Frameworks/Python.framework/Versions/3.12/bin/python3.12 \
+            -m PyInstaller --windowed --name Strana \
+            --collect-data customtkinter \
+            --collect-all yt_dlp \
+            --add-binary "ffmpeg:." \
+            strana.py
 
       - name: Arhivare .app
         run: zip -r ${{ matrix.artifact }}.zip dist/Strana.app
